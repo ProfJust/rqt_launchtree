@@ -5,6 +5,7 @@ import yaml
 import threading
 import itertools
 
+
 import rospy
 import rospkg
 import roslaunch
@@ -14,7 +15,8 @@ from rqt_launchtree.launchtree_config import LaunchtreeConfig, LaunchtreeArg, La
 
 from python_qt_binding import loadUi
 from python_qt_binding.QtCore import Qt, Signal
-from python_qt_binding.QtGui import QFileDialog, QWidget, QIcon, QTreeWidgetItem, QColor
+from python_qt_binding.QtGui import QIcon, QColor, QBrush
+from python_qt_binding.QtWidgets import QWidget, QFileDialog, QTreeWidgetItem
 
 class LaunchtreeEntryItem(QTreeWidgetItem):
 	_type_order = [dict, roslaunch.core.Node, LaunchtreeRosparam, roslaunch.core.Param, LaunchtreeRemap, LaunchtreeArg, object]
@@ -23,13 +25,15 @@ class LaunchtreeEntryItem(QTreeWidgetItem):
 		super(LaunchtreeEntryItem, self).__init__(*args, **kw)
 		self.inconsistent = False
 	def __ge__(self, other):
-		own_type_idx = map(lambda t: isinstance(self.instance, t), self._type_order).index(True)
-		other_type_idx = map(lambda t: isinstance(other.instance, t), self._type_order).index(True)
+		own_type_idx = list(map(lambda t: isinstance(self.instance, t), self._type_order).index(True))
+		other_type_idx = list(map(lambda t: isinstance(other.instance, t), self._type_order).index(True))
 		if own_type_idx != other_type_idx:
 			return own_type_idx >= other_type_idx
 		return self.text(0) >= other.text(0)
 	def __lt__(self, other):
 		return not self.__ge__(other)
+	def setBackgroundColor(self, column, color):
+		self.setBackground(column, QBrush(color))
 
 
 class LaunchtreeWidget(QWidget):
@@ -198,10 +202,10 @@ class LaunchtreeWidget(QWidget):
 
 	def _get_launch_files(self, path):
 		return sorted(
-			itertools.imap(lambda p: p.replace(path + '/', ''),
-				itertools.ifilter(self._is_launch_file,
+			map(lambda p: p.replace(path + '/', ''),
+				filter(self._is_launch_file,
 					itertools.chain.from_iterable(
-						itertools.imap(lambda f:
+						map(lambda f:
 							map(lambda n: os.path.join(f[0], n), f[2]),
 							os.walk(path)
 						)
@@ -221,7 +225,7 @@ class LaunchtreeWidget(QWidget):
 		if current is None:
 			return
 		data = current.instance
-		if isinstance(data, dict) and data.has_key('_root'):
+		if isinstance(data, dict) and data.__contains__('_root'):
 			data = data['_root']
 		if isinstance(data, roslaunch.core.Param):
 			self.properties_content.setCurrentIndex(1)
@@ -319,7 +323,26 @@ class LaunchtreeWidget(QWidget):
 			elif isinstance(entry.instance, LaunchtreeRemap):
 				show = show_remaps
 
-			show &= search_text in entry.text(0)
+			if search_text:
+				search_text_contained_in_meta = False
+				if isinstance(entry.instance, roslaunch.core.Param):
+					search_text_contained_in_meta = search_text in entry.instance.key
+					if entry.instance.value:
+						search_text_contained_in_meta |= search_text in str(entry.instance.value)
+				# node
+				elif isinstance(entry.instance, roslaunch.core.Node):
+					search_text_contained_in_meta = search_text in entry.instance.package or search_text in entry.instance.type
+				# arg
+				elif isinstance(entry.instance, LaunchtreeArg):
+					search_text_contained_in_meta = search_text in entry.instance.name
+					if entry.instance.value:
+						search_text_contained_in_meta |= search_text in str(entry.instance.value)
+				# remap
+				elif isinstance(entry.instance, LaunchtreeRemap):
+					search_text_contained_in_meta = search_text in entry.instance.from_topic or search_text in entry.instance.to_topic
+
+				show &= (search_text in entry.text(0)) or search_text_contained_in_meta
+
 			if show:
 				entry.setBackgroundColor(0, self._highlight_color if highlight else self._neutral_color)
 
